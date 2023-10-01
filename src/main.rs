@@ -1,4 +1,4 @@
-use boxcars::{ActiveActor, Frame, UpdatedAttribute, ActorId, NewActor};
+use boxcars::{ActiveActor, Frame, UpdatedAttribute, UniqueId, ActorId, NewActor};
 use boxcars::{ParseError, Replay, Attribute, HeaderProp};
 //use boxcars::{ActorId, Attribute, ObjectId, ParserBuilder, Replay};
 use std::error;
@@ -56,13 +56,13 @@ impl TimeResult {
 
 #[derive(Debug, Clone)]
 struct Metadata {
-    name: String,
+    name: Option<String>,
     date: NaiveDate,
     game_mode: String,
 }
 
 impl Metadata {
-    fn new(name: String, date: NaiveDate, game_mode: String) -> Self {
+    fn new(name: Option<String>, date: NaiveDate, game_mode: String) -> Self {
         Self {
             name,
             date,
@@ -91,9 +91,11 @@ fn get_metadata(replay: &Replay) -> Metadata {
 
     let player_name_prop = replay.properties
         .iter()
-        .find(|prop| prop.0 == "PlayerName").unwrap();
-    if let HeaderProp::Str(pname) = &player_name_prop.1 {
-        result_name = Some(pname.clone());
+        .find(|prop| prop.0 == "PlayerName");
+    if player_name_prop.is_some() {
+        if let HeaderProp::Str(pname) = &player_name_prop.unwrap().1 {
+            result_name = Some(pname.clone());
+        }
     }
 
     let game_time_prop = replay.properties
@@ -110,7 +112,7 @@ fn get_metadata(replay: &Replay) -> Metadata {
         result_mode = Some(format!("{}-{}", replay.game_type, tsize));
     }
 
-    Metadata::new(result_name.unwrap(), result_date.unwrap(), result_mode.unwrap())
+    Metadata::new(result_name, result_date.unwrap(), result_mode.unwrap())
 }
 
 fn get_replay_list(dir: &str) -> Vec<String> {
@@ -124,7 +126,7 @@ fn get_replay_list(dir: &str) -> Vec<String> {
         .map(|p| p.into_os_string().into_string().expect("failed to convert PathBuf to String"))
         .collect()
 }
-
+/*
 fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
     let fname = format!("outputs/{}.png", file);
     let root_area = BitMapBackend::new(&fname, (600*2, 2*400))
@@ -211,6 +213,7 @@ fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
     ).unwrap();
 
 }
+*/
 
 fn get_prop_string(replay: &Replay, prop: &str) -> Option<String> {
     let found = replay.properties.iter().find(|&p| {
@@ -288,7 +291,7 @@ struct LifetimeList {
 impl LifetimeList {
     fn from(list: Vec<Lifetime>) -> Self {
         Self {
-            actor_map: bucket_index(&list, |lt| {lt.events[0].event.actor_id()}),
+            actor_map: bucket_index(&list, |lt| {Some(lt.events[0].event.actor_id())}),
             list,
         }
     }
@@ -306,12 +309,15 @@ impl LifetimeList {
     }
 }
 
-fn bucket_index<T: Hash+Eq, F: Fn(&Lifetime) -> T>(v: &Vec<Lifetime>, func: F) -> HashMap<T, Vec<usize>> {
+fn bucket_index<T: Hash+Eq, F: Fn(&Lifetime) -> Option<T>>(v: &Vec<Lifetime>, func: F) -> HashMap<T, Vec<usize>> {
     v.into_iter()
         .enumerate()
         .fold(HashMap::new(), |mut ret, (ind, lt)| {
-            let entry = ret.entry(func(lt)).or_insert(vec![]);
-            entry.push(ind);
+            let key = func(lt);
+            if let Some(key_inner) = key {
+                let entry = ret.entry(key_inner).or_insert(vec![]);
+                entry.push(ind);
+            }
             ret
         })
 }
@@ -436,22 +442,25 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
 
     LifetimeList::from(ret)
 }
+/*
 fn parse_id(atr: &Attribute) -> Result<String, ()> {
     if let Attribute::UniqueId(uid) = atr {
+        dbg!(&uid);
         match &uid.remote_id {
-            boxcars::RemoteId::QQ(rid) => Ok(format!("QQ-{}", rid)),
-            boxcars::RemoteId::Xbox(rid) => Ok(format!("Xbox-{}", rid)),
-            boxcars::RemoteId::Epic(rid) => Ok(format!("Epic-{}", rid)),
-            boxcars::RemoteId::Steam(rid) => Ok(format!("Steam-{}", rid)),
-            boxcars::RemoteId::PsyNet(psy_id) => Ok(format!("PsyNet-{}", psy_id.online_id)),
-            boxcars::RemoteId::Switch(switch_id) => Ok(format!("Switch-{}", switch_id.online_id)),
-            boxcars::RemoteId::PlayStation(psn_id) => Ok(format!("PlayStation-{}", psn_id.online_id)),
+            boxcars::RemoteId::QQ(rid) => Ok(format!("qq-{}", rid)),
+            boxcars::RemoteId::Xbox(rid) => Ok(format!("xbox-{}", rid)),
+            boxcars::RemoteId::Epic(rid) => Ok(format!("epic-{}", rid)),
+            boxcars::RemoteId::Steam(rid) => Ok(format!("steam-{}", rid)),
+            boxcars::RemoteId::PsyNet(psy_id) => Ok(format!("psynet-{}", psy_id.online_id)),
+            boxcars::RemoteId::Switch(switch_id) => Ok(format!("switch-{}", switch_id.online_id)),
+            boxcars::RemoteId::PlayStation(psn_id) => Ok(format!("ps4-{}", psn_id.online_id)),
             boxcars::RemoteId::SplitScreen(split_id) => Ok(format!("SplitScreen-{}", split_id)),
         }
     } else {
         Err(())
     }
 }
+*/
 
 fn parse_actor_reference(atr: &Attribute) -> Result<i32, ()> {
     if let Attribute::ActiveActor(ActiveActor { active, actor }) = atr {
@@ -461,13 +470,15 @@ fn parse_actor_reference(atr: &Attribute) -> Result<i32, ()> {
     }
 }
 
-fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<Option<String>, Vec<usize>> {
+//fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<Option<String>, Vec<usize>> {
+fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, Vec<usize>> {
 
     let camera_create   = replay.objects.iter().position(|pp| pp == "TAGame.Default__CameraSettingsActor_TA").unwrap();
     let cam_to_pri      = replay.objects.iter().position(|pp| pp == "TAGame.CameraSettingsActor_TA:PRI").unwrap();
     let pri_to_unique   = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:UniqueId").unwrap();
 
-    let mut player_history: HashMap<Option<String>, Vec<usize>> = bucket_index(&ltl.list, |lt| {
+    //let mut player_history: HashMap<Option<String>, Vec<usize>> = bucket_index(&ltl.list, |lt| {
+    let mut player_history: HashMap<UniqueId, Vec<usize>> = bucket_index(&ltl.list, |lt| {
         if !match lt.events[0].event {
             ChangeEvent::N(na) => na.object_id.0 as usize == camera_create,
             _ => false,
@@ -502,17 +513,19 @@ fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<Option<Stri
                     }
                 });
                 if let Some(uniq_atr) = unique_atr {
-                    return parse_id(uniq_atr).ok();
+                    if let Attribute::UniqueId(uid) = uniq_atr {
+                        return Some(*uid.to_owned()); //parse_id(uniq_atr).ok();
+                    }
                 }
             }
         }
         return None;
     });
-    player_history.remove(&None);
+    //player_history.remove(&None);
 
     player_history
 }
-
+/*
 #[derive(Debug, Clone)]
 struct BallcamResults {
     self_percent: f32,
@@ -527,6 +540,22 @@ impl BallcamResults {
         }
     }
 }
+*/
+
+#[derive(Debug, Clone)]
+struct BallcamResults {
+    //results: HashMap<String, (f32, i32)>,
+    results: HashMap<UniqueId, (f32, i32)>,
+}
+
+impl BallcamResults {
+    //fn from(results: HashMap<String, (f32, i32)>) -> Self {
+    fn from(results: HashMap<UniqueId, (f32, i32)>) -> Self {
+        Self {
+            results,
+        }
+    }
+}
 
 fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay, target_player: &str) -> BallcamResults {
 
@@ -534,20 +563,24 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay, target_player: &str) -
 
     let player_buckets = player_id_buckets(ltl, replay);
     //dbg!(&player_buckets);
+   
+    //let mut results: HashMap<String, (f32, i32)> = HashMap::new();
+    let mut results: HashMap<UniqueId, (f32, i32)> = HashMap::new();
 
-    let mut self_percent = 0f32;
-    let mut other_total = 0f32;
-    let mut other_count = 0;
+    //let mut self_percent = 0f32;
+    //let mut other_total = 0f32;
+    //let mut other_count = 0;
     for (pid, idx_list) in player_buckets.iter() {
         //TODO eprintln!("\n\nCHECKING: {:?}", pid);
         let mut min_time: Option<f32> = None;
         let mut max_time: Option<f32> = None;
         let mut last_time: Option<f32> = None;
         let mut last_state: Option<bool> = Some(false); // default is false i think? See notes
+        let mut swaps = 0;
         let mut total = 0f32;
         let mut ballcam = 0f32;
         idx_list.iter().for_each(|&cfi| {
-            ltl.list[cfi].events.iter().for_each(|ev| {
+            ltl.list[cfi].events.iter().enumerate().for_each(|(index, ev)| {
                 if last_time.is_none() {
                     last_time = Some(ev.time);
                 }
@@ -558,6 +591,11 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay, target_player: &str) -
                         //if let Some(prev_time) = last_time {
                         if last_time.is_some() && last_state.is_some() {
                             total += ev.time - last_time.unwrap();
+                            if ev.time - last_time.unwrap() > 0.005 && ua.attribute != Attribute::Boolean(last_state.unwrap()) && index != 0 {
+                                swaps += 1;
+                            } else {
+                                //dbg!(index, &ua.attribute, last_state, ev.time - last_time.unwrap());
+                            }
                             if last_state.unwrap() == true {
                                 ballcam += ev.time - last_time.unwrap();
                             }
@@ -603,62 +641,87 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay, target_player: &str) -
         eprintln!("Ballcam percent: {}", ballcam / total * 100f32);
         */
 
+        //results.insert(pid.to_owned().unwrap_or(format!("no-pid-{:?}", time::Instant::now())), (ballcam / total * 100f32, swaps));
+        results.insert(pid.to_owned(), (ballcam / total * 100f32, swaps));
+        /*
         if pid.is_some() && pid.as_ref().unwrap() == target_player {
             self_percent = ballcam / total * 100f32;
         } else {
             other_total += ballcam / total * 100f32;
             other_count += 1;
         }
-
+        */
     };
-    BallcamResults::from(self_percent, other_total / (other_count as f32))
+    //BallcamResults::from(self_percent, other_total / (other_count as f32))
+    BallcamResults::from(results)
 }
 
 fn main() {
     let start_time = time::Instant::now();
+    let mut times = vec![("Start", time::Instant::now())];
 
-    let _replay_file = &dotenv::var("TEST_FILE").ok().expect("Please specify a TEST_FILE in the .env file");
+    let replay_file = &dotenv::var("TEST_FILE").ok().expect("Please specify a TEST_FILE in the .env file");
     let replay_dir = &dotenv::var("REPLAY_DIR").ok().expect("Please specify a REPLAY_DIR in the .env file");
     let target_player = &dotenv::var("TARGET_PLAYER").ok().expect("Please specify a TARGET_PLAYER in the .env file");
+    times.push(("Configs Loaded", time::Instant::now()));
 
     let replays = get_replay_list(replay_dir);
+    times.push(("Got Replay List", time::Instant::now()));
+
+//    replays.iter().for_each(|rfile| {
+//        parse_file(&rfile).unwrap();
+//    });
+
     let mut ballcam_results: Vec<(Metadata, BallcamResults)> = replays.iter().map(|rfile| {
-        let replay = parse_file(&rfile).unwrap();
+            parse_file(&rfile).unwrap()
+    }).filter(|r| r.0.game_mode == "TAGame.Replay_Soccar_TA-2")
+    .map(|r| {
         let lifetimes = parse_lifetimes(&replay);
         let metadata = get_metadata(&replay);
-        //TODO eprintln!("\nDOING: {:?}\n", metadata);
-        (metadata, ballcam_lifetimes(&lifetimes, &replay, target_player))
+        let bresults = ballcam_lifetimes(&lifetimes, &replay, target_player);
+        eprintln!("\nDOING: {}, {:?}", rfile, metadata);
+        eprintln!("RESULTS:\n {:?}\n", bresults);
+        if bresults.results.len() != 4 {
+            panic!("NOT 4 payers!!!!");
+        }
+        (metadata, bresults)
     }).collect();
 
+    //let mut ballcam_results: Vec<(Metadata, BallcamResults)> = vec![];
+    times.push(("Replays Processed", time::Instant::now()));
+
     ballcam_results.sort_by_key(|(md, _)| {md.date});
+    times.push(("Replays Sorted", time::Instant::now()));
+
+
+    let mut total_cnt = 0;
+    let mut total_sum = 0f32;
+    let mut total_swaps = 0;
+    let mut seen_min = 101f32;
+    let mut seen_max = -1f32;
+    for bb in ballcam_results.iter() {
+        for pp in bb.1.results.values() {
+            total_cnt += 1;
+            total_sum += pp.0;
+            total_swaps += pp.1;
+            seen_min = seen_min.min(pp.0);
+            seen_max = seen_max.max(pp.0);
+        }
+    }
+    eprintln!("Average ballcam: {}%", total_sum / (total_cnt as f32));
+    eprintln!("MIN: {}", seen_min);
+    eprintln!("MAX: {}", seen_max);
+    eprintln!("Average swaps: {}", (total_swaps as f32) / (total_cnt as f32));
+    eprintln!("\n\n\n");
+
+    times.push(("Random Bullshit Printing", time::Instant::now()));
+
+    
 
     //TODO dbg!(&ballcam_results, ballcam_results.len());
 
     //let mut deduped: Vec<(Metadata, BallcamResults)> = Vec::with_capacity(ballcam_results.len());
 
-    let dedupe = false;
-
-    let ballcam_results = if dedupe {
-        let (mut ballcam_results, (mdp, _, totalp, cntp)): (Vec<(Metadata, BallcamResults)>, _) = ballcam_results.into_iter().fold((vec![], (None, None, (0f32, 0f32), 0)), |(mut ret, (lmd, last, sum, cnt)), e| {
-            if Some(e.0.date) == last {
-                (ret, (lmd, last, (sum.0 + e.1.self_percent, sum.1 + e.1.other_percent), cnt+1))
-            } else {
-                if last.is_some() {
-                    eprintln!("{} -> {:?}, {}", last.unwrap(), sum, cnt);
-                    ret.push((lmd.unwrap(), BallcamResults::from(sum.0 / (cnt as f32), sum.1 / (cnt as f32))));
-                }
-                else {
-                    eprintln!("PAIIIINNN: {:?}", e);
-                }
-                (ret, (Some(e.0.clone()), Some(e.0.date), (e.1.self_percent, e.1.other_percent), 1))
-            }
-        });
-
-        ballcam_results.push((mdp.unwrap(), BallcamResults::from(totalp.0 / (cntp as f32), totalp.1 / (cntp as f32))));
-        ballcam_results
-    } else {
-        ballcam_results
-    };
 
     //TODO dbg!(&ballcam_results, ballcam_results.len());
 
@@ -699,16 +762,25 @@ fn main() {
         .filter(|r| r.0.game_mode == "TAGame.Replay_Soccar_TA-3")
         .map(|(md, bc)| {(md.clone(), bc.clone())})
         .collect();
+    times.push(("Datasets Generated", time::Instant::now()));
 
-    plot_updated(ballcam_results, &format!("both-sides-ballcam-full-{}", dedupe));
-    plot_updated(after2023, &format!("both-sides-ballcam-2023-later-{}", dedupe));
-    plot_updated(ones, &format!("both-sides-ballcam-full-1s-{}", dedupe));
-    plot_updated(twos, &format!("both-sides-ballcam-full-2s-{}", dedupe));
-    plot_updated(threes, &format!("both-sides-ballcam-full-3s-{}", dedupe));
-    plot_updated(ones2023, &format!("both-sides-ballcam-2023-1s-{}", dedupe));
-    plot_updated(twos2023, &format!("both-sides-ballcam-2023-2s-{}", dedupe));
-    plot_updated(threes2023, &format!("both-sides-ballcam-2023-3s-{}", dedupe));
+/*
+    plot_updated(ballcam_results, &format!("both-sides-ballcam-full-{}", false));
+    plot_updated(after2023, &format!("both-sides-ballcam-2023-later-{}", false));
+    plot_updated(ones, &format!("both-sides-ballcam-full-1s-{}", false));
+    plot_updated(twos, &format!("both-sides-ballcam-full-2s-{}", false));
+    plot_updated(threes, &format!("both-sides-ballcam-full-3s-{}", false));
+    plot_updated(ones2023, &format!("both-sides-ballcam-2023-1s-{}", false));
+    plot_updated(twos2023, &format!("both-sides-ballcam-2023-2s-{}", false));
+    plot_updated(threes2023, &format!("both-sides-ballcam-2023-3s-{}", false));
+*/
 
+    times.push(("Plots Generated", time::Instant::now()));
+
+
+    for i in 1..times.len() {
+        eprintln!("{}:  {:?}", times[i].0, times[i].1 - times[i-1].1);
+    }
 
     let main_duration = start_time.elapsed();
     eprintln!("Time elapsed is: {:?}", main_duration);
