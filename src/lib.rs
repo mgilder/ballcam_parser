@@ -115,7 +115,7 @@ fn get_metadata(replay: &Replay) -> Metadata {
     Metadata::new(result_name, result_date.unwrap(), result_mode.unwrap())
 }
 
-fn get_replay_list(dir: &str) -> Vec<String> {
+pub fn get_replay_list(dir: &str) -> Vec<String> {
     let path = Path::new(dir);
     fs::read_dir(path)
         .expect("Unable to list")
@@ -379,10 +379,26 @@ impl DumpEvent for ActorId {
     }
 }
 
+
 fn parse_lifetimes(replay: &Replay) -> LifetimeList {
+    let reservations   = replay.objects.iter().position(|pp| pp == "ProjectX.GRI_X:Reservations").unwrap() as i32;
+    /*
+    let match_has_begun   = replay.objects.iter().position(|pp| pp == "Engine.GameReplicationInfo:bMatchHasBegun").unwrap() as i32;
+    let match_is_over   = replay.objects.iter().position(|pp| pp == "Engine.GameReplicationInfo:bMatchIsOver").unwrap() as i32;
+    let match_endded   = replay.objects.iter().position(|pp| pp == "TAGame.GameEvent_Soccar_TA:bMatchEnded").unwrap() as i32;
+    let timed_out   = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:bTimedOut").unwrap() as i32;
+    let distracted   = replay.objects.iter().position(|pp| pp == "TAGame.PRI_TA:bIsDistracted").unwrap() as i32;
+    let state_change   = replay.objects.iter().position(|pp| pp == "TAGame.GameEvent_TA:ReplicatedStateName").unwrap() as i32;
+
+    let mut object_counts: HashMap<&String, i32> = HashMap::new();
+    // */
+
+    let mut res_changes: HashMap<UniqueId, (bool, bool)> = HashMap::new();
+
     //let replay = parse_file(filename).unwrap();
     let mut active_lifetimes: HashMap<i32, Vec<Event>> = HashMap::new();
     let mut ret: Vec<Lifetime> = vec![];
+    //eprintln!("start frame time: {}", replay.network_frames.as_ref().unwrap().frames[0].time);
     replay.network_frames.as_ref().unwrap()
         .frames.iter().enumerate()
         .for_each(|(frame_id, fr)| {
@@ -395,6 +411,9 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
 
                 // insert the new create event to a new active entry
                 active_lifetimes.insert(na.actor_id.0, vec![Event::from(ChangeEvent::N(na.clone()), frame_id, fr.time)]);
+                //if fr.time > 20.0 && fr.time < 35.0 {
+                //    *object_counts.entry(&replay.objects[na.object_id.0 as usize]).or_insert(0) += 1;
+                //}
             });
 
             fr.deleted_actors.iter().for_each(|da| {
@@ -413,6 +432,43 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
                 // append update event to active entry
                 let entry = active_lifetimes.entry(ua.actor_id.0).or_insert(vec![]);
                 entry.push(Event::from(ChangeEvent::U(ua.clone()), frame_id, fr.time));
+               
+                /*
+                if ua.object_id.0 == match_has_begun 
+                        || ua.object_id.0 == match_is_over 
+                        || ua.object_id.0 == match_endded 
+                        || ua.object_id.0 == timed_out 
+                        //|| ua.object_id.0 == distracted
+                        || ua.object_id.0 == state_change
+                        //|| ua.object_id.0 == reservations
+                        {
+                    eprintln!("\n\n{}", fr.time);
+                    eprintln!("{}", ua.dump(replay));
+                    dbg!(&ua.attribute);
+                }
+                if fr.time > 26.0 && fr.time < 39.0 {
+                    *object_counts.entry(&replay.objects[ua.object_id.0 as usize]).or_insert(0) += 1;
+                    if object_counts.get(&replay.objects[ua.object_id.0 as usize]).unwrap_or(&0) < &10 {
+                        eprintln!("\n\n{}\n{}",fr.time, ua.dump(replay));
+                    }
+                }
+                // */
+                if ua.object_id.0 == reservations {
+                    if let Attribute::Reservation(trev) = &ua.attribute {
+                        let res_entry = res_changes.entry(trev.unique_id.clone()).or_insert((trev.unknown1, trev.unknown2));
+                        if (res_entry.0 != trev.unknown1 || res_entry.1 != trev.unknown2)
+                            && !res_entry.0 && !res_entry.1 // only when was false previously
+                            {
+                            eprintln!("\n\ntime: {}", fr.time);
+                            eprintln!("was:");
+                            eprintln!("unknown1: {}", res_entry.0);
+                            eprintln!("unknown2: {}", res_entry.1);
+                            dbg!(trev);
+                        }
+                        res_entry.0 = trev.unknown1;
+                        res_entry.1 = trev.unknown2;
+                    }
+                }
             });
         });
 
@@ -423,6 +479,8 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
         }
     }
 
+
+    //dbg!(object_counts);
 //    ret.iter().enumerate().take(50).for_each(|(i, lf)| {
 //        eprintln!("\n\nLIFETIME {}", i+1);
 //        lf.events.iter().for_each(|ev| {
@@ -478,7 +536,7 @@ fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, V
     let pri_to_unique   = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:UniqueId").unwrap();
 
     //let mut player_history: HashMap<Option<String>, Vec<usize>> = bucket_index(&ltl.list, |lt| {
-    let mut player_history: HashMap<UniqueId, Vec<usize>> = bucket_index(&ltl.list, |lt| {
+    let player_history: HashMap<UniqueId, Vec<usize>> = bucket_index(&ltl.list, |lt| {
         if !match lt.events[0].event {
             ChangeEvent::N(na) => na.object_id.0 as usize == camera_create,
             _ => false,
@@ -525,6 +583,157 @@ fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, V
 
     player_history
 }
+
+
+fn get_disconnect_players(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, f32> {
+    //eprintln!("Investigating disconnected players!!!");
+    let reservations   = replay.objects.iter().position(|pp| pp == "ProjectX.GRI_X:Reservations").unwrap() as i32;
+    //let gri_new   = replay.objects.iter().position(|pp| pp == "GameInfo_Soccar.GameInfo.GameInfo_Soccar:GameReplicationInfoArchetype").unwrap() as i32;
+
+
+    let mut ret: HashMap<UniqueId, f32> = HashMap::new();
+
+    /*
+    ltl.list.iter().for_each(|ll| {
+        if ll.events.iter().find(|ff| {
+            match &ff.event {
+                ChangeEvent::N(na) => na.object_id.0 == reservations,
+                ChangeEvent::U(na) => na.object_id.0 == reservations,
+                _ => false,
+            }
+        }).is_some() {
+            eprintln!("\n\nSUCCESS!!!=====================\n");
+            //dbg!(ll.events.iter().for_each(|aa| {dbg!(aa.event.dump(replay));}));
+            eprintln!("TARGET: {}", ll.events[0].event.dump(replay));
+        }
+        //if let ChangeEvent::N(na) = &ll.events[0].event { true
+    });
+    // */
+    let target_object_id = ltl.list.iter().find_map(|ll| {
+        if ll.events.iter().find(|ff| {
+            match &ff.event {
+                ChangeEvent::U(na) => na.object_id.0 == reservations,
+                _ => false,
+            }
+        }).is_some() {
+            //eprintln!("\n\nSUCCESS!!!=====================\n");
+            //dbg!(ll.events.iter().for_each(|aa| {dbg!(aa.event.dump(replay));}));
+            //eprintln!("TARGET: {}", ll.events[0].event.dump(replay));
+            if let ChangeEvent::N(na) = ll.events[0].event {
+                Some(na.object_id.0)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+        //if let ChangeEvent::N(na) = &ll.events[0].event { true
+    });
+
+    let mut res_changes: HashMap<UniqueId, (bool, bool)> = HashMap::new();
+
+    bucket_index(&ltl.list, |ll| {
+        if let ChangeEvent::N(na) = ll.events[0].event {
+            if Some(na.object_id.0) == target_object_id {
+                Some("res")
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }).get("res").unwrap_or(&vec![]).iter().for_each(|&ll| {
+        ltl.list[ll].events.iter().for_each(|ff| {
+            if let ChangeEvent::U(ua) = &ff.event {
+                if ua.object_id.0 == reservations {
+                    if let Attribute::Reservation(trev) = &ua.attribute {
+                        if !ret.contains_key(&trev.unique_id)
+                                && res_changes.contains_key(&trev.unique_id)
+                                && !(trev.unknown1 && trev.unknown2)
+                                && (res_changes.get(&trev.unique_id).unwrap().0     // weren't already
+                                    || res_changes.get(&trev.unique_id).unwrap().1) // both false
+                                {
+                            /*
+                            eprintln!("\n\ndisconnect!!!");
+                            eprintln!("time: {}", ff.time);
+                            eprintln!("prev:");
+                            eprintln!("  u1: {}", res_changes.get(&trev.unique_id).unwrap().0);
+                            eprintln!("  u2: {}", res_changes.get(&trev.unique_id).unwrap().1);
+                            eprintln!("curr:");
+                            eprintln!("  u1: {}", trev.unknown1);
+                            eprintln!("  u2: {}", trev.unknown2);
+                            // */
+                            ret.insert(trev.unique_id.clone(), ff.time);
+                        }
+                        res_changes.insert(trev.unique_id.clone(), (trev.unknown1, trev.unknown2));
+
+                        /*
+                        let res_entry = res_changes.entry(trev.unique_id.clone()).or_insert((trev.unknown1, trev.unknown2));
+                        if (res_entry.0 != trev.unknown1 || res_entry.1 != trev.unknown2)
+                            && !res_entry.0 && !res_entry.1 // only when was false previously
+                            {
+                            eprintln!("\n\ntime: {}", fr.time);
+                            eprintln!("was:");
+                            eprintln!("unknown1: {}", res_entry.0);
+                            eprintln!("unknown2: {}", res_entry.1);
+                            dbg!(trev);
+                        }
+                        res_entry.0 = trev.unknown1;
+                        res_entry.1 = trev.unknown2;
+                        */
+                    }
+                }
+            }
+        });
+    });
+
+    //eprintln!("event: {}", replay.objects[target_object_id.unwrap() as usize]);
+
+    ret
+}
+
+
+fn get_ping_from_cam(index: usize, ltl: &LifetimeList, replay: &Replay) -> Option<(f32, usize)> {
+    let cam_to_pri      = replay.objects.iter().position(|pp| pp == "TAGame.CameraSettingsActor_TA:PRI").unwrap();
+    let ping_object = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:Ping").unwrap();
+    let pri_attr = ltl.list[index].events.iter().find_map(|cvt| {
+        match &cvt.event {
+            ChangeEvent::U(ua) => {
+                if ua.object_id.0 as usize == cam_to_pri {
+                    Some((cvt.frame, &ua.attribute))
+                } else {
+                    None
+                }
+            },
+            _ => None,
+        }
+    });
+    if let Some((ref_frame_id, pri_ref)) = pri_attr {
+        if let Ok(pri_actor) = parse_actor_reference(pri_ref) {
+            let pri_lifetime = ltl.lookup_actor(pri_actor, ref_frame_id).expect("ACTOR ASSOC DIDN'T EXIST. PAIN");
+            let ping_raw = pri_lifetime.events.iter().find_map(|pvt| {
+                match &pvt.event {
+                    ChangeEvent::U(ua) => {
+                        if ua.object_id.0 as usize == ping_object {
+                            Some((pvt.time, &ua.attribute))
+                        } else {
+                            None
+                        }
+                    },
+                    _ => None,
+                }
+            });
+            if let Some((ping_time, ping_unwrapped)) = ping_raw {
+                //dbg!(&ping_unwrapped);
+                if let Attribute::Byte(ping_val) = ping_unwrapped {
+                    return Some((ping_time, *ping_val as usize)); //parse_id(uniq_atr).ok();
+                }
+            }
+        }
+    }
+    return None;
+}
+
 /*
 #[derive(Debug, Clone)]
 struct BallcamResults {
@@ -561,8 +770,11 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
 
     let ballcam_id = replay.objects.iter().position(|pp| pp == "TAGame.CameraSettingsActor_TA:bUsingSecondaryCamera").unwrap();
 
+    //let ping_object = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:Ping").unwrap();
+
     let player_buckets = player_id_buckets(ltl, replay);
     //dbg!(&player_buckets);
+    let disconnect_players = get_disconnect_players(ltl, replay);
    
     //let mut results: HashMap<String, (f32, i32)> = HashMap::new();
     let mut results: HashMap<UniqueId, (f32, i32)> = HashMap::new();
@@ -577,10 +789,22 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
         let mut last_time: Option<f32> = None;
         let mut last_state: Option<bool> = Some(false); // default is false i think? See notes
         let mut swaps = 0;
+        let mut swap_times: Vec<(f32, String)> = vec![];
         let mut total = 0f32;
         let mut ballcam = 0f32;
+
+        let disconnect_time = disconnect_players.get(pid);
+
         idx_list.iter().for_each(|&cfi| {
+            //dbg!(get_ping_from_cam(cfi, ltl, replay));
             ltl.list[cfi].events.iter().enumerate().for_each(|(index, ev)| {
+                if disconnect_time.is_some() && ev.time >= *disconnect_time.unwrap() {
+                    return;
+                }
+                //if pid.eq(&UniqueId { system_id: 1, remote_id: boxcars::RemoteId::Steam(76561198022491694), local_id: 0 }) {
+                    //eprintln!("---------------------------------------------");
+                    //eprintln!("{}", ev.dump(&replay));
+                //}
                 if last_time.is_none() {
                     last_time = Some(ev.time);
                 }
@@ -591,8 +815,9 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
                         //if let Some(prev_time) = last_time {
                         if last_time.is_some() && last_state.is_some() {
                             total += ev.time - last_time.unwrap();
-                            if ev.time - last_time.unwrap() > 0.005 && ua.attribute != Attribute::Boolean(last_state.unwrap()) && index != 0 {
+                            if ev.time - last_time.unwrap() > 0.0001 && ua.attribute != Attribute::Boolean(last_state.unwrap()) && index != 0 {
                                 swaps += 1;
+                                swap_times.push((ev.time, format!("{:?}", ua.attribute)));
                             } else {
                                 //dbg!(index, &ua.attribute, last_state, ev.time - last_time.unwrap());
                             }
@@ -639,7 +864,11 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
         eprintln!("Ballcam:         {}", ballcam);
         eprintln!("Standard:        {}", total - ballcam);
         eprintln!("Ballcam percent: {}", ballcam / total * 100f32);
-        */
+        eprintln!("Swaps:           {}", swaps);
+        dbg!(&swap_times);
+        // */
+        //dbg!(&pid);
+        //dbg!(&swap_times);
 
         //results.insert(pid.to_owned().unwrap_or(format!("no-pid-{:?}", time::Instant::now())), (ballcam / total * 100f32, swaps));
         results.insert(pid.to_owned(), (ballcam / total * 100f32, swaps));
@@ -658,7 +887,11 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
 
 
 pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, BallcamResults), ()> {
-    let replay = parse_file(&replay_file).unwrap();
+    let replay = parse_file(&replay_file).map_err(|e| {
+        eprintln!("\nHIDDEN ERROR:\n{}\n\n", e);
+        ()
+    })?;
+    //let replay = parse_file(&replay_file).unwrap();
     let lifetimes = parse_lifetimes(&replay);
     let metadata = get_metadata(&replay);
     let bresults = ballcam_lifetimes(&lifetimes, &replay);
