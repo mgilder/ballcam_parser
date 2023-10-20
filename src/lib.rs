@@ -1,5 +1,6 @@
 use boxcars::{ActiveActor, Frame, UpdatedAttribute, UniqueId, ActorId, NewActor};
 use boxcars::{ParseError, Replay, Attribute, HeaderProp};
+use std::cmp::Ordering;
 //use boxcars::{ActorId, Attribute, ObjectId, ParserBuilder, Replay};
 use std::error;
 use std::fs;
@@ -126,8 +127,27 @@ pub fn get_replay_list(dir: &str) -> Vec<String> {
         .map(|p| p.into_os_string().into_string().expect("failed to convert PathBuf to String"))
         .collect()
 }
-/*
-fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
+
+fn fix_bytes(b: u64) -> String {
+    let big_endian = b.to_be_bytes().map(|b| format!("{:02x}", b)).join("");
+    let little_endian = b.to_le_bytes().map(|b| format!("{:02x}", b)).join("");
+    little_endian
+}
+
+fn uid_to_string(uid: &UniqueId) -> String {
+    match &uid.remote_id {
+        boxcars::RemoteId::QQ(rid) => format!("qq-{}-{}", rid, uid.local_id),
+        boxcars::RemoteId::Xbox(rid) => format!("xbox-{}-{}", fix_bytes(*rid), uid.local_id),
+        boxcars::RemoteId::Epic(rid) => format!("epic-{}-{}", rid, uid.local_id),
+        boxcars::RemoteId::Steam(rid) => format!("steam-{}-{}", rid, uid.local_id),
+        boxcars::RemoteId::PsyNet(psy_id) => format!("psynet-{}-{}", fix_bytes(psy_id.online_id), uid.local_id),
+        boxcars::RemoteId::Switch(switch_id) => format!("switch-{}-{}", switch_id.online_id, uid.local_id),
+        boxcars::RemoteId::PlayStation(psn_id) => format!("ps4-{}-{}", psn_id.name, uid.local_id),
+        boxcars::RemoteId::SplitScreen(split_id) => format!("splitscreen-{}-{}", split_id, uid.local_id),
+    }
+}
+
+pub fn plot_updated(data: Vec<(Metadata, HashMap<UniqueId, PlayerResult>)>, file: &str, target_player: &str) {
     let fname = format!("outputs/{}.png", file);
     let root_area = BitMapBackend::new(&fname, (600*2, 2*400))
         .into_drawing_area();
@@ -145,12 +165,31 @@ fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
     let min_val: f32 = 0f32;
     let max_val: f32 = 100f32;
 
+    let mut self_series: Vec<(NaiveDate, f32)> = Vec::with_capacity(data.len());
+    let mut other_series: Vec<(NaiveDate, f32)> = Vec::with_capacity(data.len());
+
+    data.iter().for_each(|(md, hm)| {
+        let mut other_top = 0f32;
+        let mut other_bot = 0f32;
+        for (key, val) in hm {
+            if uid_to_string(key) == target_player {
+                self_series.push((md.date, 100f32 * val.ballcam_active_only / val.total_time_active_only));
+            } else {
+                other_top += val.ballcam_active_only;
+                other_bot += val.total_time_active_only;
+            }
+        }
+        other_series.push((md.date, 100f32 * other_top / other_bot));
+    });
+
+    /*
     let self_series: Vec<(NaiveDate, f32)> = data.iter().map(|(md, lst)| {
-        (md.date, lst.self_percent)
+        (md.date, lst.get(target_player).)
     }).collect();
     let other_series: Vec<(NaiveDate, f32)> = data.iter().map(|(md, lst)| {
         (md.date, lst.other_percent)
     }).collect();
+    */
 
     //dbg!(&self_series, &self_series.len());
     //dbg!(&other_series);
@@ -180,6 +219,7 @@ fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
         LineSeries::new(self_series.clone(), &BLUE,)
     ).unwrap();
 
+    /*
     let average_cnt = 7;
     let mut running_sum = self_series.iter().take(average_cnt-1).map(|z| {z.1}).sum::<f32>();
     ctx.draw_series(
@@ -196,6 +236,7 @@ fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
                         }).collect::<Vec<(NaiveDate, f32)>>(),
         &GREEN,)
     ).unwrap();
+    */
 
     ctx.draw_series(
         self_series.iter()
@@ -213,7 +254,6 @@ fn plot_updated(data: Vec<(Metadata, BallcamResults)>, file: &str) {
     ).unwrap();
 
 }
-*/
 
 fn get_prop_string(replay: &Replay, prop: &str) -> Option<String> {
     let found = replay.properties.iter().find(|&p| {
@@ -766,6 +806,398 @@ impl BallcamResults {
     }
 }
 
+#[derive(Debug)]
+struct FrameInfo {
+    time: f32,
+    frame: usize,
+}
+
+impl FrameInfo {
+    fn from(time: f32, frame: usize) -> Self {
+        Self {
+            time,
+            frame,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum GameState {
+    Goal,
+    Active,
+    Countdown,
+}
+
+#[derive(Debug)]
+struct GameStateEvent {
+    variant: GameState,
+    info: FrameInfo,
+}
+
+impl GameStateEvent {
+    fn from(time: f32, frame: usize, variant: GameState) -> Self {
+        Self {
+            variant,
+            info: FrameInfo::from(time, frame),
+        }
+    }
+}
+
+/*
+impl PartialEq<BallcamEvent> for GameStateEvent {
+    fn eq(&self, other: &BallcamEvent) -> bool {
+        self.info == other.info
+    }
+}
+
+impl PartialOrd<BallcamEvent> for GameStateEvent {
+    fn partial_cmp(&self, other: &BallcamEvent) -> Option<Ordering> {
+        Some(self.info.cmp(other.info))
+    }
+}
+*/
+
+
+//fn get_state_changes(ltl: &LifetimeList, replay: &Replay) -> Vec<(f32, bool)> {
+fn get_state_changes(ltl: &LifetimeList, replay: &Replay) -> Vec<GameStateEvent> {
+    let state_change_object = replay.objects.iter().position(|pp| pp == "TAGame.GameEvent_TA:ReplicatedStateName").unwrap() as i32;
+    let countdown_event = replay.names.iter().position(|pp| pp == "Countdown").unwrap_or(99993) as i32;
+    let active_event = replay.names.iter().position(|pp| pp == "Active").unwrap_or(99992) as i32;
+    //dbg!(&replay.names);
+    let goal_event = replay.names.iter().position(|pp| pp == "PostGoalScored").unwrap_or(99991) as i32;
+
+    let target_object_id = ltl.list.iter().find_map(|ll| {
+        if ll.events.iter().find(|ff| {
+            match &ff.event {
+                ChangeEvent::U(na) => na.object_id.0 == state_change_object,
+                _ => false,
+            }
+        }).is_some() {
+            if let ChangeEvent::N(na) = ll.events[0].event {
+                Some(na.object_id.0)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
+    //let mut state_changes: Vec<(f32, bool)> = Vec::new();
+    let mut real_state_changes: Vec<GameStateEvent> = Vec::new();
+
+    bucket_index(&ltl.list, |ll| {
+        if let ChangeEvent::N(na) = ll.events[0].event {
+            if Some(na.object_id.0) == target_object_id {
+                Some(0)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }).values().next().unwrap_or(&vec![]).iter().for_each(|&ll| {
+        ltl.list[ll].events.iter().for_each(|ff| {
+            if let ChangeEvent::U(ua) = &ff.event {
+                if ua.object_id.0 == state_change_object {
+                    if let &Attribute::Int(new_state) = &ua.attribute {
+                        match new_state {
+                            x if x == countdown_event => real_state_changes.push(GameStateEvent::from(ff.time, ff.frame, GameState::Countdown)),
+                            x if x == active_event => real_state_changes.push(GameStateEvent::from(ff.time, ff.frame, GameState::Active)),
+                            x if x == goal_event => real_state_changes.push(GameStateEvent::from(ff.time, ff.frame, GameState::Goal)),
+                            _ => (),
+                        }
+                        //let current_bool = new_state == active_event;  // for exclude kickoff
+                        //let current_bool = new_state != goal_event;       // for include kickoff
+                        /*
+                        if match state_changes.last() {
+                            Some((_last_time, last_state)) => *last_state != current_bool,
+                            None => true,
+                        } {
+                            state_changes.push((ff.time, current_bool));
+                        }
+                        */
+                    }
+                }
+            }
+        });
+    });
+/*
+    let min_time = real_state_changes.first().unwrap().0;
+    let max_time = real_state_changes.last().unwrap().0;
+
+    let active_time = real_state_changes.iter().enumerate().skip(1).fold(0f32, |acc, (i, ee)| {
+        acc + if state_changes[i-1].1 {
+            ee.0 - state_changes[i-1].0
+        } else {0f32}
+    });
+
+    eprintln!("total_time: {}", max_time - min_time);
+    eprintln!("active_time:    {}", active_time);
+    eprintln!("inactive_time: {}", max_time - min_time - active_time);
+    */
+    //dbg!(&state_changes);
+    //dbg!(&real_state_changes);
+    real_state_changes
+}
+
+#[derive(Debug, Clone)]
+pub struct PlayerResult {
+    pub swaps_all: i32,
+    pub swaps_with_freeze: i32,
+    pub swaps_active_only: i32,
+    pub ballcam_all: f32,
+    pub ballcam_with_freeze: f32,
+    pub ballcam_active_only: f32,
+    pub total_time_all: f32,
+    pub total_time_with_freeze: f32,
+    pub total_time_active_only: f32,
+}
+
+impl PlayerResult {
+    fn new() -> Self {
+        Self {
+            swaps_all: 0,
+            swaps_with_freeze: 0,
+            swaps_active_only: 0,
+            ballcam_all: 0f32,
+            ballcam_with_freeze: 0f32,
+            ballcam_active_only: 0f32,
+            total_time_all: 0f32,
+            total_time_with_freeze: 0f32,
+            total_time_active_only: 0f32,
+        }
+    }
+
+    fn update(&mut self, last_time: f32, ballcam_was_on: bool, new_ballcam: bool, cur_time: f32, last_game_state: &GameState) {
+        let delta = cur_time - last_time;
+//        eprintln!("Current time: {}", cur_time);
+//        eprintln!("Prev time:    {}", last_time);
+//        eprintln!("Found delta: {}", delta);
+//        eprintln!("Old total: {}", self.total_time_all);
+        //eprintln!("OLD");
+        //dbg!(&self);
+        self.total_time_all += delta;
+        if ballcam_was_on {
+            self.ballcam_all += delta;
+        }
+        if new_ballcam != ballcam_was_on && delta > 0.00001 {
+            self.swaps_all += 1;
+        }
+        if last_game_state != &GameState::Goal {   // include countdown/freeze phase
+            self.total_time_with_freeze += delta;
+            if ballcam_was_on {
+                self.ballcam_with_freeze += delta;
+            }
+            if new_ballcam != ballcam_was_on && delta > 0.00001 {
+                self.swaps_with_freeze += 1;
+            }
+        }
+        if last_game_state == &GameState::Active {   // only count active time
+            self.total_time_active_only += delta;
+            if ballcam_was_on {
+                self.ballcam_active_only += delta;
+            }
+            if new_ballcam != ballcam_was_on && delta > 0.00001 {
+                self.swaps_active_only += 1;
+            }
+        }
+        //eprintln!("New total: {}", self.total_time_all);
+        //eprintln!("NEW");
+        //dbg!(&self);
+    }
+}
+
+/*
+fn get_no_replay_time(new_time: f32, new_state: f32, last_state: Option<bool>, last_time: Option<f32>, game_state_change: &Vec<(f32, bool)>) -> (f32, bool) {
+    let current_state = game_state_change.partition_point(|ee| {ee.0 <= new_time}) - 1;
+}
+*/
+
+#[derive(Debug)]
+enum BallcamVariant {
+    Start,
+//    Create,
+//    Delete,
+    Update(bool),
+    Disconnect,
+}
+
+
+#[derive(Debug)]
+struct BallcamEvent {
+    info: FrameInfo,
+    variant: BallcamVariant,
+}
+
+impl BallcamEvent {
+    fn from(frame: usize, time: f32, variant: BallcamVariant) -> Self {
+        Self {
+            info: FrameInfo::from(time, frame),
+            variant
+        }
+    }
+}
+
+/*
+impl PartialEq<GameStateEvent> for BallcamEvent {
+    fn eq(&self, other: &GameStateEvent) -> bool {
+        self.info == other.info
+    }
+}
+
+impl PartialOrd<GameStateEvent> for BallcamEvent {
+    fn partial_cmp(&self, other: &GameStateEvent) -> Option<Ordering> {
+        Some(self.info.cmp(other.info))
+    }
+}
+*/
+
+//fn get_ballcam_list(ltl: &LifetimeList, replay: &Replay, player_buckets: &HashMap<UniqueId, &Vec<usize>>) -> HashMap<UniqueId, Vec<BallcamEvent>> {
+fn get_ballcam_list(ltl: &LifetimeList, replay: &Replay, pid: &UniqueId, idx_list: &Vec<usize>, disconnect_time: Option<&f32>) -> Vec<BallcamEvent> {
+    let mut ret: Vec<BallcamEvent> = Vec::new();
+    
+    let ballcam_id = replay.objects.iter().position(|pp| pp == "TAGame.CameraSettingsActor_TA:bUsingSecondaryCamera").unwrap() as i32;
+    //let camera_create   = replay.objects.iter().position(|pp| pp == "TAGame.Default__CameraSettingsActor_TA").unwrap() as i32;
+
+    //let mut min_time: Option<f32> = None;
+    let mut max_time: Option<f32> = None;
+    let mut max_frame: Option<usize> = None;
+//    let mut last_time: Option<f32> = None;
+//    let mut last_state: Option<bool> = Some(false); // default is false i think? See notes
+//    let mut swaps = 0;
+//    let mut swap_times: Vec<(f32, String)> = vec![];
+//    let mut total = 0f32;
+//    let mut ballcam = 0f32;
+    let mut is_disconnected = false;
+    //let mut actor_exists = false;
+
+    idx_list.iter().for_each(|&cfi| {
+        ltl.list[cfi].events.iter().enumerate().for_each(|(index, ev)| {
+            if ret.len() == 0 {
+                ret.push(BallcamEvent::from(ev.frame, ev.time, BallcamVariant::Start));
+            }
+            if !is_disconnected {
+                max_time = Some(max_time.map(|v| v.max(ev.time)).unwrap_or(ev.time));
+                max_frame = Some(max_frame.map(|v| v.max(ev.frame)).unwrap_or(ev.frame));
+            }
+            if disconnect_time.is_some() && ev.time >= *disconnect_time.unwrap() {
+                is_disconnected = true;
+                return;
+            }
+            match &ev.event {
+//                ChangeEvent::N(na) if na.object_id.0 == camera_create => {
+//                    if !actor_exists {
+//                        ret.push(BallcamEvent::from(ev.frame, ev.time, BallcamVariant::Create));
+//                        actor_exists = true;
+//                    }
+//                }
+                ChangeEvent::U(ua) if ua.object_id.0 == ballcam_id => {
+                    if let Attribute::Boolean(u_state) = &ua.attribute {
+                        ret.push(BallcamEvent::from(ev.frame, ev.time, BallcamVariant::Update(*u_state)));
+                    }
+                },
+//                ChangeEvent::D(_) => {
+//                    ret.push(BallcamEvent::from(ev.frame, ev.time, BallcamVariant::Delete));
+//                    actor_exists = false;
+//                }
+                _ => (),
+            }
+        });
+    });
+    ret.push(BallcamEvent::from(max_frame.unwrap(), max_time.unwrap(), BallcamVariant::Disconnect));
+
+    ret.sort_by_key(|rr| rr.info.frame);
+
+    //eprintln!("\n\nplayer: {:?}", pid);
+    //dbg!(&ret);
+    //eprintln!("^^ that was player: {:?}\n\n", pid);
+    return ret;
+}
+
+fn new_ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, PlayerResult> {
+    let mut results: HashMap<UniqueId, PlayerResult> = HashMap::new();
+
+    let player_buckets = player_id_buckets(ltl, replay);
+    let disconnect_players = get_disconnect_players(ltl, replay);
+    let game_state_changes: Vec<GameStateEvent> = get_state_changes(ltl, replay);
+    for (pid, idx_list) in player_buckets.iter() {
+        let ballcam_events = get_ballcam_list(ltl, replay, pid, idx_list, disconnect_players.get(pid));
+        if let Some(res) = process_ballcam(ltl, replay, pid, &ballcam_events, &game_state_changes) {
+            results.insert(pid.clone(), res);
+        }
+    }
+/*
+    eprintln!("New Results!!!");
+    dbg!(&results);
+    for (r, v) in results.iter() {
+        eprintln!("\nPlayer:");
+        dbg!(&r);
+        dbg!(&v);
+        eprintln!("FULL BALLCAM %:     {}%", 100f32 * v.ballcam_all / v.total_time_all);
+        eprintln!("NON-GOAL BALLCAM %: {}%", 100f32 * v.ballcam_with_freeze / v.total_time_with_freeze);
+        eprintln!("ACTIVE BALLCAM %:   {}%", 100f32 * v.ballcam_active_only / v.total_time_active_only);
+    }
+*/
+    results
+}
+
+fn process_ballcam(ltl: &LifetimeList, replay: &Replay, pid: &UniqueId, ball_events: &Vec<BallcamEvent>, game_events: &Vec<GameStateEvent>) -> Option<PlayerResult> {
+    //eprintln!("\n\n\nProcessing Ballcam!!! for {:?}", pid);
+    let mut ret = PlayerResult::new();
+    let mut current_ballcam = false;
+    let mut current_game: GameState = GameState::Countdown;
+    let mut ball_index = 0;
+    let mut game_index = 0;
+    //let mut last_ball_time: Option<f32> = None;
+    //let mut last_game_time: Option<f32> = None;
+    let mut last_time: f32 = ball_events[0].info.time.min(game_events[0].info.time);
+    //dbg!(last_time);
+    while ball_index < ball_events.len() {
+        if game_index == game_events.len()-1 || ball_events[ball_index].info.frame < game_events[game_index].info.frame {
+            let next_bc = match ball_events[ball_index].variant {
+                BallcamVariant::Start => false,
+                BallcamVariant::Update(vv) => vv,
+                BallcamVariant::Disconnect => current_ballcam,
+            };
+            ret.update(last_time, current_ballcam, next_bc, ball_events[ball_index].info.time, &current_game);
+            //eprintln!("Next event is ballcam!");
+            //dbg!(&ball_events[ball_index]);
+            /*
+            current_ballcam = match ball_events[ball_index].variant {
+                BallcamVariant::Start => false,
+                BallcamVariant::Update(vv) => vv,
+                BallcamVariant::Disconnect => false,
+            };
+            */
+            current_ballcam = next_bc;
+            last_time = ball_events[ball_index].info.time;
+            ball_index += 1;
+        } else {
+            ret.update(last_time, current_ballcam, current_ballcam, game_events[game_index].info.time, &current_game);
+            //eprintln!("Next event is game!");
+            //dbg!(&game_events[game_index]);
+            last_time = game_events[game_index].info.time;
+            current_game = game_events[game_index].variant;
+            game_index += 1;
+        }
+    }
+    
+    /*
+    eprintln!("Player: {:?}", pid);
+    dbg!(&ret);
+    eprintln!("FULL BALLCAM %:     {}%", 100f32 * ret.ballcam_all / ret.total_time_all);
+    eprintln!("NON-GOAL BALLCAM %: {}%", 100f32 * ret.ballcam_with_freeze / ret.total_time_with_freeze);
+    eprintln!("ACTIVE BALLCAM %:   {}%", 100f32 * ret.ballcam_active_only / ret.total_time_active_only);
+    eprintln!("all    SWAPS:   {}%", ret.swaps_all);
+    eprintln!("freeze SWAPS:   {}%", ret.swaps_with_freeze);
+    eprintln!("active SWAPS:   {}%", ret.swaps_active_only);
+    eprintln!("DONE!!!");
+    // */
+    Some(ret)
+}
+
+
 fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
 
     let ballcam_id = replay.objects.iter().position(|pp| pp == "TAGame.CameraSettingsActor_TA:bUsingSecondaryCamera").unwrap();
@@ -775,6 +1207,8 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
     let player_buckets = player_id_buckets(ltl, replay);
     //dbg!(&player_buckets);
     let disconnect_players = get_disconnect_players(ltl, replay);
+    //get_state_changes(ltl, replay);
+    //new_ballcam_lifetimes(ltl, replay);
    
     //let mut results: HashMap<String, (f32, i32)> = HashMap::new();
     let mut results: HashMap<UniqueId, (f32, i32)> = HashMap::new();
@@ -783,6 +1217,7 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
     //let mut other_total = 0f32;
     //let mut other_count = 0;
     for (pid, idx_list) in player_buckets.iter() {
+        get_ballcam_list(ltl, replay, pid, idx_list, disconnect_players.get(pid));
         //TODO eprintln!("\n\nCHECKING: {:?}", pid);
         let mut min_time: Option<f32> = None;
         let mut max_time: Option<f32> = None;
@@ -833,6 +1268,7 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
                         //eprintln!("{: >10.6} - {:?}", last_time.unwrap(), last_state);
                     },
                     ChangeEvent::D(_) => {
+                        // eprintln!("DELETE EVENT AT {} for {:?}", ev.time, pid);
                         if last_time.is_some() && last_state.is_some() {
                             total += ev.time - last_time.unwrap();
                             if last_state.unwrap() == true {
@@ -856,7 +1292,9 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
             }
         }
 
-        /*TODO
+        // /*TODO
+        eprintln!("\nPlayer:");
+        dbg!(&pid);
         eprintln!("MIN:             {}", min_time.unwrap_or(-1f32));
         eprintln!("MAX:             {}", max_time.unwrap_or(-1f32));
         eprintln!("DIFF:            {}", max_time.unwrap_or(-1f32) - min_time.unwrap_or(0f32));
@@ -865,7 +1303,7 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
         eprintln!("Standard:        {}", total - ballcam);
         eprintln!("Ballcam percent: {}", ballcam / total * 100f32);
         eprintln!("Swaps:           {}", swaps);
-        dbg!(&swap_times);
+        //dbg!(&swap_times);
         // */
         //dbg!(&pid);
         //dbg!(&swap_times);
@@ -886,6 +1324,21 @@ fn ballcam_lifetimes(ltl: &LifetimeList, replay: &Replay) -> BallcamResults {
 }
 
 
+pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, HashMap<UniqueId, PlayerResult>), ()> {
+    let replay = parse_file(&replay_file).map_err(|e| {
+        eprintln!("\nHIDDEN ERROR:\n{}\n\n", e);
+        ()
+    })?;
+    //let replay = parse_file(&replay_file).unwrap();
+    let lifetimes = parse_lifetimes(&replay);
+    let metadata = get_metadata(&replay);
+    let bresults = new_ballcam_lifetimes(&lifetimes, &replay);
+    //ballcam_lifetimes(&lifetimes, &replay);
+    //eprintln!("\nDOING: {}, {:?}", replay_file, metadata);
+    //eprintln!("RESULTS:\n {:?}\n", bresults);
+    Ok((metadata, bresults))
+}
+/*
 pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, BallcamResults), ()> {
     let replay = parse_file(&replay_file).map_err(|e| {
         eprintln!("\nHIDDEN ERROR:\n{}\n\n", e);
@@ -899,3 +1352,4 @@ pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, BallcamResults)
     //eprintln!("RESULTS:\n {:?}\n", bresults);
     Ok((metadata, bresults))
 }
+*/
