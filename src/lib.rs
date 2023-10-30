@@ -16,6 +16,8 @@ use plotters::prelude::*;
 use::dotenv;
 use std::time;
 
+//pub mod ballcam_stats;
+
 fn parse_rl(data: &[u8]) -> Result<Replay, ParseError> {
     boxcars::ParserBuilder::new(data)
         .must_parse_network_data()
@@ -421,7 +423,8 @@ impl DumpEvent for ActorId {
 
 
 fn parse_lifetimes(replay: &Replay) -> LifetimeList {
-    let reservations   = replay.objects.iter().position(|pp| pp == "ProjectX.GRI_X:Reservations").unwrap() as i32;
+    // let reservations   = replay.objects.iter().position(|pp| pp == "ProjectX.GRI_X:Reservations").unwrap() as i32;
+    let reservations = get_object_id(replay, "ProjectX.GRI_X:Reservations").expect("Expected Reservations"); // TODO handle result better here
     /*
     let match_has_begun   = replay.objects.iter().position(|pp| pp == "Engine.GameReplicationInfo:bMatchHasBegun").unwrap() as i32;
     let match_is_over   = replay.objects.iter().position(|pp| pp == "Engine.GameReplicationInfo:bMatchIsOver").unwrap() as i32;
@@ -495,6 +498,8 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
                 // */
                 if ua.object_id.0 == reservations {
                     if let Attribute::Reservation(trev) = &ua.attribute {
+                        //eprintln!("\n\ntime: {}", fr.time);
+                        //dbg!(trev);
                         let res_entry = res_changes.entry(trev.unique_id.clone()).or_insert((trev.unknown1, trev.unknown2));
                         if (res_entry.0 != trev.unknown1 || res_entry.1 != trev.unknown2)
                             && !res_entry.0 && !res_entry.1 // only when was false previously
@@ -504,6 +509,7 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
                             eprintln!("unknown1: {}", res_entry.0);
                             eprintln!("unknown2: {}", res_entry.1);
                             dbg!(trev);
+                            //panic!("rejoined?");
                         }
                         res_entry.0 = trev.unknown1;
                         res_entry.1 = trev.unknown2;
@@ -1154,7 +1160,7 @@ fn process_ballcam(ltl: &LifetimeList, replay: &Replay, pid: &UniqueId, ball_eve
     let mut last_time: f32 = ball_events[0].info.time.min(game_events[0].info.time);
     //dbg!(last_time);
     while ball_index < ball_events.len() {
-        if game_index == game_events.len()-1 || ball_events[ball_index].info.frame < game_events[game_index].info.frame {
+        if game_index == game_events.len() || ball_events[ball_index].info.frame < game_events[game_index].info.frame {
             let next_bc = match ball_events[ball_index].variant {
                 BallcamVariant::Start => false,
                 BallcamVariant::Update(vv) => vv,
@@ -1331,12 +1337,67 @@ pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, HashMap<UniqueI
     })?;
     //let replay = parse_file(&replay_file).unwrap();
     let lifetimes = parse_lifetimes(&replay);
+    /*
+    for l in lifetimes.list.iter() {
+        let object = match &l.events[0].event {
+                ChangeEvent::N(ee) => format!("{}-{}", &replay.objects[ee.object_id.0 as usize], ee.name_id.map(|v| replay.names[v as usize].as_str()).unwrap_or("noname")),
+                ChangeEvent::D(ee) => {panic!("AHJHH delete"); String::from("DELETE FIRST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")},
+                ChangeEvent::U(ee) => {panic!("Aadfhdhfas update"); format!("{}-{}", &replay.objects[ee.object_id.0 as usize], "UPDATE FIRST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!") },
+        };
+        println!("{} -> {:?} count", object, l.events.len());
+    }
+    */
     let metadata = get_metadata(&replay);
     let bresults = new_ballcam_lifetimes(&lifetimes, &replay);
     //ballcam_lifetimes(&lifetimes, &replay);
     //eprintln!("\nDOING: {}, {:?}", replay_file, metadata);
     //eprintln!("RESULTS:\n {:?}\n", bresults);
     Ok((metadata, bresults))
+}
+
+pub fn reservation_stats(replay_file: &str, results: &mut HashMap<(Option<(bool, bool)>, (bool, bool)), i64>) -> Result<(), ()> {
+    let replay = parse_file(&replay_file).map_err(|e| {
+        eprintln!("\nHIDDEN ERROR:\n{}\n\n", e);
+        ()
+    })?;
+
+    let reservations = get_object_id(&replay, "ProjectX.GRI_X:Reservations").ok_or(())?;
+
+    let mut res_changes: HashMap<UniqueId, (bool, bool)> = HashMap::new();
+
+    replay.network_frames.as_ref().unwrap()
+        .frames.iter().enumerate()
+        .for_each(|(frame_id, fr)| {
+            fr.updated_actors.iter().for_each(|ua| {
+                if ua.object_id.0 == reservations {
+                    if let Attribute::Reservation(trev) = &ua.attribute {
+                        //eprintln!("\n\ntime: {}", fr.time);
+                        //dbg!(trev);
+                        if !res_changes.contains_key(&trev.unique_id) {
+                            *results.entry((None, (trev.unknown1, trev.unknown2))).or_insert(0) += 1;
+                        }
+                        let res_entry = res_changes.entry(trev.unique_id.clone()).or_insert((trev.unknown1, trev.unknown2));
+                        if (res_entry.0 != trev.unknown1 || res_entry.1 != trev.unknown2)
+                            // && !res_entry.0 && !res_entry.1 // only when was false previously
+                            {
+                                /*
+                            eprintln!("\n\ntime: {}", fr.time);
+                            eprintln!("was:");
+                            eprintln!("unknown1: {}", res_entry.0);
+                            eprintln!("unknown2: {}", res_entry.1);
+                            dbg!(trev);
+                            */
+                            //panic!("rejoined?");
+                            *results.entry(( Some(*res_entry), (trev.unknown1, trev.unknown2) )).or_insert(0) += 1;
+                        }
+                        res_entry.0 = trev.unknown1;
+                        res_entry.1 = trev.unknown2;
+                    }
+                }
+            });
+        });
+
+    Ok(())
 }
 /*
 pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, BallcamResults), ()> {
