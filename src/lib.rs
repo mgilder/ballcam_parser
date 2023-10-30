@@ -136,7 +136,7 @@ fn fix_bytes(b: u64) -> String {
     little_endian
 }
 
-fn uid_to_string(uid: &UniqueId) -> String {
+pub fn uid_to_string(uid: &UniqueId) -> String {
     match &uid.remote_id {
         boxcars::RemoteId::QQ(rid) => format!("qq-{}-{}", rid, uid.local_id),
         boxcars::RemoteId::Xbox(rid) => format!("xbox-{}-{}", fix_bytes(*rid), uid.local_id),
@@ -504,11 +504,13 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
                         if (res_entry.0 != trev.unknown1 || res_entry.1 != trev.unknown2)
                             && !res_entry.0 && !res_entry.1 // only when was false previously
                             {
+                            /*
                             eprintln!("\n\ntime: {}", fr.time);
                             eprintln!("was:");
                             eprintln!("unknown1: {}", res_entry.0);
                             eprintln!("unknown2: {}", res_entry.1);
                             dbg!(trev);
+                            */
                             //panic!("rejoined?");
                         }
                         res_entry.0 = trev.unknown1;

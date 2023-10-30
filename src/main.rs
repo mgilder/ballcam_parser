@@ -12,6 +12,32 @@ fn main() {
     let replay_dir = &dotenv::var("REPLAY_DIR").ok().expect("Please specify a REPLAY_DIR in the .env file");
     let target_player = &dotenv::var("TARGET_PLAYER").ok().expect("Please specify a TARGET_PLAYER in the .env file");
 
+
+    ////////////////////////////////////////////////////////////
+    // START TARGET_PLAYER DETERMINATION CODE
+    // Delete or Comment out the next line to enable the check
+    /*
+    let mut uid_counts: HashMap<String, i32> = HashMap::new();
+    replay_stats_rl::get_replay_list(replay_dir)
+        .iter()
+        .filter_map(|rfile| {
+            replay_stats_rl::parse_replay_file(&rfile).ok()
+        })
+        .for_each(|pret| {
+            for uid in pret.1.keys() {
+                *uid_counts.entry(replay_stats_rl::uid_to_string(uid)).or_insert(0) += 1;
+            }
+        });
+    let mut uid_results: Vec<(String, i32)> = uid_counts.into_iter().collect();
+    uid_results.sort_by_key(|item| std::cmp::Reverse(item.1));
+    uid_results.iter().take(10).for_each(|(player, count)| {
+        eprintln!("{:5} times we saw:    {}", count, player);
+    });
+    return;
+    // */
+    // END TARGET_PLAYER DETERMINATION CODE
+    ////////////////////////////////////////////////////////////
+
     // dbg!(replay_stats_rl::parse_replay_file(replay_file).unwrap());
    /* 
     let mut reservation_results: HashMap<(Option<(bool, bool)>, (bool, bool)), i64> = HashMap::new();

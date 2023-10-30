@@ -29,7 +29,7 @@ First there are a few key events:
 - `TAGame.CameraSettingsActor_TA:PRI`
     - Associates a CameraSettingsActor with a PlayerReplicationInfo. Allows us to figure out what player the camera events refer to.
 - `Engine.PlayerReplicationInfo:UniqueId`
-    - For a PlayerReplicationInfo, gives us the `UniqueId`, which is useful for tracking players within and across games.
+    - For a PlayerReplicationInfo, gives us the `UniqueId` of the player, which is useful for differentiating and tracking players within and across replays.
 - `TAGame.GameEvent_TA:ReplicatedStateName`
     - The state of the game. Has 3 possible values from what I've seen. `Countdown`, `Active`, and `PostGoalScored`. Allows us to exclude counting ballcam time during replays and after goals are scored.
 - `ProjectX.GRI_X:Reservations`
@@ -49,4 +49,7 @@ pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, HashMap<UniqueI
 
 - LifetimeList
     - This is basically a list of "Lifetimes". A "Lifetime" is basically just a list of events for a given actor_id, from creation until either deleted or overwritten.
+    - TODO
 - Ballcam Calculation
+    - TODO
+- TODO
