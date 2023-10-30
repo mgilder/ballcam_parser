@@ -55,8 +55,15 @@ pub fn parse_replay_file(replay_file: &str) -> Result<(Metadata, HashMap<UniqueI
     - Get the ballcam results using the `new_ballcam_lifetimes` function
 
 - LifetimeList
-    - This is basically a list of "Lifetimes". A "Lifetime" is basically just a list of events for a given actor_id, from creation until either deleted or overwritten.
-    - TODO
+    - This is basically a list of "Lifetimes". A "Lifetime" is basically just a list of events for a given actor_id, from it's creation until it's either deleted or overwritten.
+    - Long story short, this basically is just used to figure out at any network frame or time what each actor_id corresponds to, and also easily filter for relevant events. In this case, we want to filter only to camera events, so that we can get ballcam events, and when we have `TAGame.CameraSettingsActor_TA:PRI` events, be able to easily figure out the actor_id "Lifetime" it points to at that time, and then from there search that playerreplicationinfo actor's "Lifetime" to get the `UniqueId`.
 - Ballcam Calculation
-    - TODO
-- TODO
+    - Using the LifetimeList we can get a few different things.
+        - First we use `player_id_buckets`, to limit the lifetimes to only camera objects, and also group them by the corresponding player in a hashmap.
+            - We'll use this later to search through the camera events to get ballcam events.
+        - Then we use `get_disconnect_players`, to get any players that disconnected during that match, and the time at which they did so.
+            - We'll use this later to stop tracking a player after they disconnect the first time.
+        - Then we use `get_state_changes`, to get all the game state changes, e.g. `Countdown`, `Active`, `PostGoalScored` from the `TAGame.GameEvent_TA:ReplicatedStateName` events as mentioned above.
+            - We'll use this later to not count time that occurs between goals and countdown.
+        - Then for each player we'll get a list of ballcam events using `get_ballcam_list`, then process them using `process_ballcam`.
+- Then we return the results for each player.
