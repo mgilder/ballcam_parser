@@ -13,10 +13,17 @@ TEST_FILE=""      # Just a random testing thing, can be ignored.
 - Run with `cargo run --release`
 - Now you should have some output plots in the `./outputs` folder where you ran the code
 
-If you don't know what your `TARGET_PLAYER` is, then you can add the following code to the top of `main` in `src/main.rs`, if you set `TEST_FILE` to point to one of your replays. This should print out the player-ids for all players in the match.
+If you don't know what your `TARGET_PLAYER` is, then you can uncomment the `TARGET_PLAYER` determination code in `src/main.rs` at the top of `main`.
 ```rust
-dbg!(replay_stats_rl::parse_replay_file(replay_file).unwrap());
-return;
+    ////////////////////////////////////////////////////////////
+    // START TARGET_PLAYER DETERMINATION CODE
+    // Delete or Comment out the next line to enable the check
+    /*
+        ...
+        return;
+    // */
+    // END TARGET_PLAYER DETERMINATION CODE
+    ////////////////////////////////////////////////////////////
 ```
 
 ## Overview of Key Events
