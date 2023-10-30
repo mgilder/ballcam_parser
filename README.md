@@ -13,7 +13,7 @@ TEST_FILE=""      # Just a random testing thing, can be ignored.
 - Run with `cargo run --release`
 - Now you should have some output plots in the `./outputs` folder where you ran the code
 
-If you don't know what your `TARGET_PLAYER` is, then you can uncomment the `TARGET_PLAYER` determination code in `src/main.rs` at the top of `main`.
+If you don't know what your `TARGET_PLAYER` is, then you can uncomment the `TARGET_PLAYER` determination code in `src/main.rs` at the top of `main`. Running with `cargo run --release` will tell you the top 10 most seen player ids in your list of replays, and your player id should probably be the most seen one. Once you're done, recomment that code.
 ```rust
     ////////////////////////////////////////////////////////////
     // START TARGET_PLAYER DETERMINATION CODE
