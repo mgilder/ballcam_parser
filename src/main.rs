@@ -11,13 +11,37 @@ fn main() {
     let replay_file = &dotenv::var("TEST_FILE").ok().expect("Please specify a TEST_FILE in the .env file");
     let replay_dir = &dotenv::var("REPLAY_DIR").ok().expect("Please specify a REPLAY_DIR in the .env file");
     let target_player = &dotenv::var("TARGET_PLAYER").ok().expect("Please specify a TARGET_PLAYER in the .env file");
+
+    // dbg!(replay_stats_rl::parse_replay_file(replay_file).unwrap());
+   /* 
+    let mut reservation_results: HashMap<(Option<(bool, bool)>, (bool, bool)), i64> = HashMap::new();
+    replay_stats_rl::get_replay_list(replay_dir).iter().for_each(|rfile| {
+        eprintln!("File: {}", rfile);
+        replay_stats_rl::reservation_stats(rfile, &mut reservation_results);
+    });
+    for key in reservation_results.keys() {
+        eprintln!("{:?} -> {}", key, reservation_results.get(key).unwrap());
+    }
+    return;
+    */
+
+   /* 
+    replay_stats_rl::get_replay_list(replay_dir).iter().take(500).for_each(|rfile| {
+        eprintln!("File: {}", rfile);
+        replay_stats_rl::parse_replay_file(rfile).unwrap();
+    });
+    return;
+    
+    replay_stats_rl::parse_replay_file(replay_file).unwrap();
+    return;
+    */
     times.push(("Configs Loaded", time::Instant::now()));
 
     let replays = replay_stats_rl::get_replay_list(replay_dir);
     times.push(("Got Replay List", time::Instant::now()));
 
-    let mut ballcam_results: Vec<(Metadata, HashMap<UniqueId, replay_stats_rl::PlayerResult>)> = replays.iter().map(|rfile| {
-            replay_stats_rl::parse_replay_file(&rfile).unwrap()
+    let mut ballcam_results: Vec<(Metadata, HashMap<UniqueId, replay_stats_rl::PlayerResult>)> = replays.iter().filter_map(|rfile| {
+            replay_stats_rl::parse_replay_file(&rfile).ok()
     }).collect();
 
     times.push(("Replays Processed", time::Instant::now()));
