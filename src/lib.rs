@@ -149,7 +149,7 @@ pub fn uid_to_string(uid: &UniqueId) -> String {
     }
 }
 
-pub fn plot_updated(data: Vec<(Metadata, HashMap<UniqueId, PlayerResult>)>, file: &str, target_player: &str) {
+pub fn plot_updated(data: Vec<(Metadata, HashMap<UniqueId, PlayerResult>)>, file: &str, target_player: &str, plot_others: bool) {
     let fname = format!("outputs/{}.png", file);
     let root_area = BitMapBackend::new(&fname, (600*2, 2*400))
         .into_drawing_area();
@@ -245,15 +245,16 @@ pub fn plot_updated(data: Vec<(Metadata, HashMap<UniqueId, PlayerResult>)>, file
             .map(|&(dt, vv)| Circle::new((dt, vv), 3, BLUE.filled())),
     ).unwrap();
 
+    if plot_others {
+        ctx.draw_series(
+            LineSeries::new(other_series.clone(), &RED,)
+        ).unwrap();
 
-    ctx.draw_series(
-        LineSeries::new(other_series.clone(), &RED,)
-    ).unwrap();
-
-    ctx.draw_series(
-        other_series.iter()
-            .map(|&(dt, vv)| Circle::new((dt, vv), 3, RED.filled())),
-    ).unwrap();
+        ctx.draw_series(
+            other_series.iter()
+                .map(|&(dt, vv)| Circle::new((dt, vv), 3, RED.filled())),
+        ).unwrap();
+    }
 
 }
 

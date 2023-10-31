@@ -11,6 +11,7 @@ fn main() {
     let replay_file = &dotenv::var("TEST_FILE").ok().expect("Please specify a TEST_FILE in the .env file");
     let replay_dir = &dotenv::var("REPLAY_DIR").ok().expect("Please specify a REPLAY_DIR in the .env file");
     let target_player = &dotenv::var("TARGET_PLAYER").ok().expect("Please specify a TARGET_PLAYER in the .env file");
+    let plot_other_players = dotenv::var("PLOT_OTHER_PLAYERS").ok() == Some(String::from("true"));
 
 
     ////////////////////////////////////////////////////////////
@@ -122,14 +123,14 @@ fn main() {
         .collect();
     times.push(("Datasets Generated", time::Instant::now()));
 
-    replay_stats_rl::plot_updated(ballcam_results, &format!("both-sides-ballcam-full-{}", false), target_player);
-    replay_stats_rl::plot_updated(after2023, &format!("both-sides-ballcam-2023-later-{}", false), target_player);
-    replay_stats_rl::plot_updated(ones, &format!("both-sides-ballcam-full-1s-{}", false), target_player);
-    replay_stats_rl::plot_updated(twos, &format!("both-sides-ballcam-full-2s-{}", false), target_player);
-    replay_stats_rl::plot_updated(threes, &format!("both-sides-ballcam-full-3s-{}", false), target_player);
-    replay_stats_rl::plot_updated(ones2023, &format!("both-sides-ballcam-2023-1s-{}", false), target_player);
-    replay_stats_rl::plot_updated(twos2023, &format!("both-sides-ballcam-2023-2s-{}", false), target_player);
-    replay_stats_rl::plot_updated(threes2023, &format!("both-sides-ballcam-2023-3s-{}", false), target_player);
+    replay_stats_rl::plot_updated(ballcam_results, &format!("both-sides-ballcam-full-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(after2023, &format!("both-sides-ballcam-2023-later-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(ones, &format!("both-sides-ballcam-full-1s-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(twos, &format!("both-sides-ballcam-full-2s-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(threes, &format!("both-sides-ballcam-full-3s-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(ones2023, &format!("both-sides-ballcam-2023-1s-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(twos2023, &format!("both-sides-ballcam-2023-2s-{}", false), target_player, plot_other_players);
+    replay_stats_rl::plot_updated(threes2023, &format!("both-sides-ballcam-2023-3s-{}", false), target_player, plot_other_players);
 
     times.push(("Plots Generated", time::Instant::now()));
 

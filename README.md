@@ -9,6 +9,7 @@
 TARGET_PLAYER=""  # Your player-id. should be of the format `<platform_lowercase>-<platform_id>-0`
 REPLAY_DIR=""     # The directory with all of your replays (%UserProfile%/Documents/My Games/Rocket League/TAGame/Demos) usually on windows?
 TEST_FILE=""      # Just a random testing thing, can be ignored.
+PLOT_OTHER_PLAYERS=true    # whether to include the average of the other players in the output plots
 ```
 - Run with `cargo run --release`
 - Now you should have some output plots in the `./outputs` folder where you ran the code
