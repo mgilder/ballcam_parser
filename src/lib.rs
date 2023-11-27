@@ -432,25 +432,9 @@ impl DumpEvent for ActorId {
 
 
 fn parse_lifetimes(replay: &Replay) -> LifetimeList {
-    // let reservations   = replay.objects.iter().position(|pp| pp == "ProjectX.GRI_X:Reservations").unwrap() as i32;
-    let reservations = get_object_id(replay, "ProjectX.GRI_X:Reservations").expect("Expected Reservations"); // TODO handle result better here
-    /*
-    let match_has_begun   = replay.objects.iter().position(|pp| pp == "Engine.GameReplicationInfo:bMatchHasBegun").unwrap() as i32;
-    let match_is_over   = replay.objects.iter().position(|pp| pp == "Engine.GameReplicationInfo:bMatchIsOver").unwrap() as i32;
-    let match_endded   = replay.objects.iter().position(|pp| pp == "TAGame.GameEvent_Soccar_TA:bMatchEnded").unwrap() as i32;
-    let timed_out   = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:bTimedOut").unwrap() as i32;
-    let distracted   = replay.objects.iter().position(|pp| pp == "TAGame.PRI_TA:bIsDistracted").unwrap() as i32;
-    let state_change   = replay.objects.iter().position(|pp| pp == "TAGame.GameEvent_TA:ReplicatedStateName").unwrap() as i32;
-
-    let mut object_counts: HashMap<&String, i32> = HashMap::new();
-    // */
-
-    let mut res_changes: HashMap<UniqueId, (bool, bool)> = HashMap::new();
-
-    //let replay = parse_file(filename).unwrap();
     let mut active_lifetimes: HashMap<i32, Vec<Event>> = HashMap::new();
     let mut ret: Vec<Lifetime> = vec![];
-    //eprintln!("start frame time: {}", replay.network_frames.as_ref().unwrap().frames[0].time);
+
     replay.network_frames.as_ref().unwrap()
         .frames.iter().enumerate()
         .for_each(|(frame_id, fr)| {
@@ -463,9 +447,6 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
 
                 // insert the new create event to a new active entry
                 active_lifetimes.insert(na.actor_id.0, vec![Event::from(ChangeEvent::N(na.clone()), frame_id, fr.time)]);
-                //if fr.time > 20.0 && fr.time < 35.0 {
-                //    *object_counts.entry(&replay.objects[na.object_id.0 as usize]).or_insert(0) += 1;
-                //}
             });
 
             fr.deleted_actors.iter().for_each(|da| {
@@ -484,48 +465,6 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
                 // append update event to active entry
                 let entry = active_lifetimes.entry(ua.actor_id.0).or_insert(vec![]);
                 entry.push(Event::from(ChangeEvent::U(ua.clone()), frame_id, fr.time));
-               
-                /*
-                if ua.object_id.0 == match_has_begun 
-                        || ua.object_id.0 == match_is_over 
-                        || ua.object_id.0 == match_endded 
-                        || ua.object_id.0 == timed_out 
-                        //|| ua.object_id.0 == distracted
-                        || ua.object_id.0 == state_change
-                        //|| ua.object_id.0 == reservations
-                        {
-                    eprintln!("\n\n{}", fr.time);
-                    eprintln!("{}", ua.dump(replay));
-                    dbg!(&ua.attribute);
-                }
-                if fr.time > 26.0 && fr.time < 39.0 {
-                    *object_counts.entry(&replay.objects[ua.object_id.0 as usize]).or_insert(0) += 1;
-                    if object_counts.get(&replay.objects[ua.object_id.0 as usize]).unwrap_or(&0) < &10 {
-                        eprintln!("\n\n{}\n{}",fr.time, ua.dump(replay));
-                    }
-                }
-                // */
-                if ua.object_id.0 == reservations {
-                    if let Attribute::Reservation(trev) = &ua.attribute {
-                        //eprintln!("\n\ntime: {}", fr.time);
-                        //dbg!(trev);
-                        let res_entry = res_changes.entry(trev.unique_id.clone()).or_insert((trev.unknown1, trev.unknown2));
-                        if (res_entry.0 != trev.unknown1 || res_entry.1 != trev.unknown2)
-                            && !res_entry.0 && !res_entry.1 // only when was false previously
-                            {
-                            /*
-                            eprintln!("\n\ntime: {}", fr.time);
-                            eprintln!("was:");
-                            eprintln!("unknown1: {}", res_entry.0);
-                            eprintln!("unknown2: {}", res_entry.1);
-                            dbg!(trev);
-                            */
-                            //panic!("rejoined?");
-                        }
-                        res_entry.0 = trev.unknown1;
-                        res_entry.1 = trev.unknown2;
-                    }
-                }
             });
         });
 
@@ -536,46 +475,9 @@ fn parse_lifetimes(replay: &Replay) -> LifetimeList {
         }
     }
 
-
-    //dbg!(object_counts);
-//    ret.iter().enumerate().take(50).for_each(|(i, lf)| {
-//        eprintln!("\n\nLIFETIME {}", i+1);
-//        lf.events.iter().for_each(|ev| {
-//            eprintln!("===================================================================");
-//            eprintln!("{}", ev.dump(&replay));
-//            /*
-//            match ev {
-//                Event::N(na) => eprintln!("{}", na.dump(&replay)), //{dbg!(replay.objects.get(na.actor_id.0 as usize)); ()},
-//                Event::U(ua) => eprintln!("{}", ua.dump(&replay)), //{dbg!(replay.objects.get(ua.actor_id.0 as usize)); ()},
-//                Event::D(da) => eprintln!("{}", da.dump(&replay)),
-//            };
-//            */
-//            //dbg!(ev);
-//        });
-//        eprintln!("-----------------\n");
-//    });
-
     LifetimeList::from(ret)
 }
-/*
-fn parse_id(atr: &Attribute) -> Result<String, ()> {
-    if let Attribute::UniqueId(uid) = atr {
-        dbg!(&uid);
-        match &uid.remote_id {
-            boxcars::RemoteId::QQ(rid) => Ok(format!("qq-{}", rid)),
-            boxcars::RemoteId::Xbox(rid) => Ok(format!("xbox-{}", rid)),
-            boxcars::RemoteId::Epic(rid) => Ok(format!("epic-{}", rid)),
-            boxcars::RemoteId::Steam(rid) => Ok(format!("steam-{}", rid)),
-            boxcars::RemoteId::PsyNet(psy_id) => Ok(format!("psynet-{}", psy_id.online_id)),
-            boxcars::RemoteId::Switch(switch_id) => Ok(format!("switch-{}", switch_id.online_id)),
-            boxcars::RemoteId::PlayStation(psn_id) => Ok(format!("ps4-{}", psn_id.online_id)),
-            boxcars::RemoteId::SplitScreen(split_id) => Ok(format!("SplitScreen-{}", split_id)),
-        }
-    } else {
-        Err(())
-    }
-}
-*/
+
 
 fn parse_actor_reference(atr: &Attribute) -> Result<i32, ()> {
     if let Attribute::ActiveActor(ActiveActor { active, actor }) = atr {
@@ -632,49 +534,11 @@ fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, V
 
 
 fn get_disconnect_players(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, f32> {
-    //eprintln!("Investigating disconnected players!!!");
-    let reservations   = replay.objects.iter().position(|pp| pp == "ProjectX.GRI_X:Reservations").unwrap() as i32;
-    //let gri_new   = replay.objects.iter().position(|pp| pp == "GameInfo_Soccar.GameInfo.GameInfo_Soccar:GameReplicationInfoArchetype").unwrap() as i32;
-
+    let reservations = get_object_id(replay, "ProjectX.GRI_X:Reservations").unwrap();
 
     let mut ret: HashMap<UniqueId, f32> = HashMap::new();
 
-    /*
-    ltl.list.iter().for_each(|ll| {
-        if ll.events.iter().find(|ff| {
-            match &ff.event {
-                ChangeEvent::N(na) => na.object_id.0 == reservations,
-                ChangeEvent::U(na) => na.object_id.0 == reservations,
-                _ => false,
-            }
-        }).is_some() {
-            eprintln!("\n\nSUCCESS!!!=====================\n");
-            //dbg!(ll.events.iter().for_each(|aa| {dbg!(aa.event.dump(replay));}));
-            eprintln!("TARGET: {}", ll.events[0].event.dump(replay));
-        }
-        //if let ChangeEvent::N(na) = &ll.events[0].event { true
-    });
-    // */
-    let target_object_id = ltl.list.iter().find_map(|ll| {
-        if ll.events.iter().find(|ff| {
-            match &ff.event {
-                ChangeEvent::U(na) => na.object_id.0 == reservations,
-                _ => false,
-            }
-        }).is_some() {
-            //eprintln!("\n\nSUCCESS!!!=====================\n");
-            //dbg!(ll.events.iter().for_each(|aa| {dbg!(aa.event.dump(replay));}));
-            //eprintln!("TARGET: {}", ll.events[0].event.dump(replay));
-            if let ChangeEvent::N(na) = ll.events[0].event {
-                Some(na.object_id.0)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-        //if let ChangeEvent::N(na) = &ll.events[0].event { true
-    });
+    let target_object_id = replay.objects.iter().position(|obj| obj.ends_with(":GameReplicationInfoArchetype")).map(|ind| ind as i32);
 
     let mut res_changes: HashMap<UniqueId, (bool, bool)> = HashMap::new();
 
