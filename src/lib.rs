@@ -293,6 +293,14 @@ impl ChangeEvent {
             Self::U(ua) => ua.actor_id.0,
         }
     }
+
+    fn object_id(&self) -> Option<i32> {
+        match self {
+            Self::N(na) => Some(na.object_id.0),
+            Self::D(da) => None,
+            Self::U(ua) => Some(ua.object_id.0),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -577,58 +585,47 @@ fn parse_actor_reference(atr: &Attribute) -> Result<i32, ()> {
     }
 }
 
-//fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<Option<String>, Vec<usize>> {
 fn player_id_buckets(ltl: &LifetimeList, replay: &Replay) -> HashMap<UniqueId, Vec<usize>> {
+    let camera_create   = get_object_id(replay, "TAGame.Default__CameraSettingsActor_TA").unwrap();
+    let cam_to_pri      = get_object_id(replay, "TAGame.CameraSettingsActor_TA:PRI").unwrap();
+    let pri_to_unique   = get_object_id(replay, "Engine.PlayerReplicationInfo:UniqueId").unwrap();
 
-    let camera_create   = replay.objects.iter().position(|pp| pp == "TAGame.Default__CameraSettingsActor_TA").unwrap();
-    let cam_to_pri      = replay.objects.iter().position(|pp| pp == "TAGame.CameraSettingsActor_TA:PRI").unwrap();
-    let pri_to_unique   = replay.objects.iter().position(|pp| pp == "Engine.PlayerReplicationInfo:UniqueId").unwrap();
-
-    //let mut player_history: HashMap<Option<String>, Vec<usize>> = bucket_index(&ltl.list, |lt| {
     let player_history: HashMap<UniqueId, Vec<usize>> = bucket_index(&ltl.list, |lt| {
-        if !match lt.events[0].event {
-            ChangeEvent::N(na) => na.object_id.0 as usize == camera_create,
-            _ => false,
-        } {
+        if lt.events[0].event.object_id() != Some(camera_create) {
             return None;
         }
+
         let pri_attr = lt.events.iter().find_map(|cvt| {
-            match &cvt.event {
-                ChangeEvent::U(ua) => {
-                    if ua.object_id.0 as usize == cam_to_pri {
-                        Some((cvt.frame, &ua.attribute))
-                    } else {
-                        None
-                    }
-                },
-                _ => None,
+            if cvt.event.object_id() == Some(cam_to_pri) {
+                if let ChangeEvent::U(update_event) = &cvt.event {
+                    return Some((cvt.frame, &update_event.attribute));
+                }
             }
+            return None;
         });
+
         if let Some((ref_frame_id, pri_ref)) = pri_attr {
             if let Ok(pri_actor) = parse_actor_reference(pri_ref) {
                 let pri_lifetime = ltl.lookup_actor(pri_actor, ref_frame_id).expect("ACTOR ASSOC DIDN'T EXIST. PAIN");
+
                 let unique_atr = pri_lifetime.events.iter().find_map(|pvt| {
-                    match &pvt.event {
-                        ChangeEvent::U(ua) => {
-                            if ua.object_id.0 as usize == pri_to_unique {
-                                Some(&ua.attribute)
-                            } else {
-                                None
-                            }
-                        },
-                        _ => None,
+                    if pvt.event.object_id() == Some(pri_to_unique) {
+                        if let ChangeEvent::U(update_event) = &pvt.event {
+                            return Some(&update_event.attribute);
+                        }
                     }
+                    return None;
                 });
+
                 if let Some(uniq_atr) = unique_atr {
                     if let Attribute::UniqueId(uid) = uniq_atr {
-                        return Some(*uid.to_owned()); //parse_id(uniq_atr).ok();
+                        return Some(*uid.to_owned());
                     }
                 }
             }
         }
         return None;
     });
-    //player_history.remove(&None);
 
     player_history
 }
